@@ -53,5 +53,5 @@ register_activation_hook( __FILE__, function () {
 // حذف هنگام غیرفعال‌سازی (اختیاری)
 register_deactivation_hook( __FILE__, function () {
     // اگر می‌خوای تنظیمات بمونه، این رو کامنت کن
-    // delete_option( 'cs_ahm_hidden_menus' );
+    delete_option( 'cs_ahm_hidden_menus' );
 } );
