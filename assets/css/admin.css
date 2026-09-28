@@ -1,0 +1,104 @@
+.cs-ahm-wrap h1 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cs-ahm-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 15px 0;
+    padding: 12px 15px;
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+}
+
+.cs-ahm-counter {
+    margin-right: auto;
+    color: #646970;
+    font-size: 13px;
+}
+
+.cs-ahm-counter span {
+    font-weight: 700;
+    color: #d63638;
+}
+
+/* سوییچ */
+.cs-ahm-switch {
+    position: relative;
+    display: inline-block;
+    width: 42px;
+    height: 22px;
+}
+
+.cs-ahm-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.cs-ahm-slider {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background-color: #c3c4c7;
+    transition: .3s;
+    border-radius: 22px;
+}
+
+.cs-ahm-slider:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .3s;
+    border-radius: 50%;
+}
+
+.cs-ahm-switch input:checked + .cs-ahm-slider {
+    background-color: #d63638;
+}
+
+.cs-ahm-switch input:checked + .cs-ahm-slider:before {
+    transform: translateX(20px);
+}
+
+.cs-ahm-switch input:disabled + .cs-ahm-slider {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.cs-ahm-icon .dashicons {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    color: #50575e;
+}
+
+.cs-ahm-badge {
+    display: inline-block;
+    background: #f0f0f1;
+    color: #646970;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    margin-right: 8px;
+}
+
+.cs-ahm-protected {
+    background: #fef7f7 !important;
+}
+
+.cs-ahm-orphan {
+    background: #fff8e5 !important;
+}
+
+.cs-ahm-orphan strong {
+    color: #b32d2e;
+}
