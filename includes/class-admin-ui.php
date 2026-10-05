@@ -8,7 +8,10 @@ class CS_AHM_Admin_UI {
     }
 
     public function maybe_show_notice() {
-        if ( ! isset( $_GET['cs_ahm_saved'] ) ) {
+        if ( ! isset( $_GET['settings-updated'] ) ) {
+            return;
+        }
+        if ( ! isset( $_GET['page'] ) || 'cs-admin-hide-menu' !== $_GET['page'] ) {
             return;
         }
         ?>
