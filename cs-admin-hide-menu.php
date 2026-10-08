@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       CS Admin Hide Menu
  * Plugin URI:        https://codsoft.ir
- * Description:       مخفی‌سازی منوهای پنل مدیریت وردپرس بر اساس نقش کاربر — ساخته‌شده توسط CodSoft
- * Version:           1.1.0
+ * Description:       مخفی‌سازی منوهای پنل مدیریت وردپرس بر اساس نقش کاربر یا کاربر مشخص — ساخته‌شده توسط CodSoft
+ * Version:           1.2.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            CodSoft
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'CS_AHM_VERSION', '1.1.0' );
+define( 'CS_AHM_VERSION', '1.2.0' );
 define( 'CS_AHM_FILE', __FILE__ );
 define( 'CS_AHM_PATH', plugin_dir_path( __FILE__ ) );
 define( 'CS_AHM_URL', plugin_dir_url( __FILE__ ) );

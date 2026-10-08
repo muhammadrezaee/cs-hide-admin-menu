@@ -15,10 +15,13 @@ class CS_AHM_Menu_Hider {
         $normalized = array();
 
         foreach ( $raw as $key => $value ) {
+            // فرمت خیلی قدیمی: [0 => 'edit.php'] ← مخفی برای همه
             if ( is_int( $key ) && is_string( $value ) ) {
-                $normalized[ $value ] = array();
-            } elseif ( is_string( $key ) && is_array( $value ) ) {
-                $normalized[ $key ] = $value;
+                $normalized[ $value ] = CS_AHM_Roles::normalize_config( array() );
+            }
+            // فرمت فعلی و فرمت نقش‌محور قدیمی: ['edit.php' => [...]]
+            elseif ( is_string( $key ) && is_array( $value ) ) {
+                $normalized[ $key ] = CS_AHM_Roles::normalize_config( $value );
             }
         }
 

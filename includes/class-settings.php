@@ -9,6 +9,7 @@ class CS_AHM_Settings {
         add_action( 'admin_menu', array( $this, 'add_settings_page' ) );
         add_action( 'admin_init', array( $this, 'register_settings' ) );
         add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
+        add_action( 'wp_ajax_cs_ahm_search_users', array( $this, 'ajax_search_users' ) );
     }
 
     public function add_settings_page() {
@@ -52,19 +53,29 @@ class CS_AHM_Settings {
         $clean = array();
 
         foreach ( $input as $key => $data ) {
-            // ۱) شکل خام فرم: [index => ['slug' => ..., 'enabled' => 1, 'roles' => [...]]]
+            $users = array();
+
+            // ۱) شکل خام فرم: [index => ['slug' => ..., 'enabled' => 1, 'roles' => [...], 'users' => [...]]]
             if ( is_array( $data ) && isset( $data['slug'] ) ) {
                 $slug    = sanitize_text_field( (string) $data['slug'] );
                 $roles   = isset( $data['roles'] ) ? $data['roles'] : array();
+                $users   = isset( $data['users'] ) ? $data['users'] : array();
                 $enabled = ! empty( $data['enabled'] );
             }
-            // ۲) شکل از قبلِ پاک‌شده: ['edit.php' => ['editor', ...]] ← فراخوانی دوم sanitize
+            // ۲) شکلِ پاک‌شدهٔ فعلی: ['edit.php' => ['roles' => [...], 'users' => [...]]] ← فراخوانی دوم sanitize
+            elseif ( is_string( $key ) && is_array( $data ) && ( array_key_exists( 'roles', $data ) || array_key_exists( 'users', $data ) ) && ! isset( $data['enabled'] ) ) {
+                $slug    = sanitize_text_field( $key );
+                $roles   = isset( $data['roles'] ) ? $data['roles'] : array();
+                $users   = isset( $data['users'] ) ? $data['users'] : array();
+                $enabled = true;
+            }
+            // ۳) شکلِ پاک‌شدهٔ قدیمی (فقط نقش): ['edit.php' => ['editor', ...]]
             elseif ( is_string( $key ) && is_array( $data ) && ! isset( $data['enabled'] ) ) {
                 $slug    = sanitize_text_field( $key );
                 $roles   = $data;
                 $enabled = true;
             }
-            // ۳) فرمت قدیمی: [0 => 'edit.php']
+            // ۴) فرمت خیلی قدیمی: [0 => 'edit.php']
             elseif ( is_int( $key ) && is_string( $data ) ) {
                 $slug    = sanitize_text_field( $data );
                 $roles   = array();
@@ -91,31 +102,68 @@ class CS_AHM_Settings {
                 continue;
             }
 
-            $clean[ $slug ] = self::sanitize_roles( $roles );
+            // نقش و کاربر با هم نرمال‌سازی می‌شن تا فرمت ذخیره همیشه یکدست و idempotent بمونه
+            $clean[ $slug ] = CS_AHM_Roles::normalize_config(
+                array(
+                    'roles' => $roles,
+                    'users' => $users,
+                )
+            );
         }
 
         return $clean;
     }
 
     /**
-     * نرمال‌سازی لیست نقش‌ها
+     * جستجوی ajax کاربران برای پنل انتخاب کاربر
+     *
+     * فقط ادمین با nonce معتبر؛ حداکثر ۱۰ نتیجه تا لیستِ کامل کاربران
+     * هیچ‌وقت لود نشه (سایت‌های پُرکاربر کند نمی‌شن).
      */
-    private static function sanitize_roles( $roles ) {
-        $clean = array();
-
-        if ( is_array( $roles ) ) {
-            foreach ( $roles as $role ) {
-                if ( ! is_scalar( $role ) ) {
-                    continue;
-                }
-                $role = sanitize_key( $role );
-                if ( $role ) {
-                    $clean[] = $role;
-                }
-            }
+    public function ajax_search_users() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'message' => 'forbidden' ), 403 );
         }
 
-        return array_values( array_unique( $clean ) );
+        check_ajax_referer( 'cs_ahm_search_users', 'nonce' );
+
+        $q = isset( $_GET['q'] ) ? sanitize_text_field( wp_unslash( $_GET['q'] ) ) : '';
+
+        $args = array(
+            'number'      => 10,
+            'count_total' => false,
+            'fields'      => array( 'ID', 'user_login', 'display_name' ),
+        );
+
+        if ( '' !== $q ) {
+            $args['search']         = '*' . $q . '*';
+            $args['search_columns'] = array( 'user_login', 'user_nicename', 'display_name' );
+            $args['orderby']        = 'display_name';
+            $args['order']          = 'ASC';
+        } else {
+            // بدون عبارت جستجو: ۱۰ کاربر آخر ثبت‌شده
+            $args['orderby'] = 'ID';
+            $args['order']   = 'DESC';
+        }
+
+        $all_roles = wp_roles()->roles;
+        $out       = array();
+
+        foreach ( get_users( $args ) as $u ) {
+            $role = '';
+            if ( ! empty( $u->roles[0] ) && isset( $all_roles[ $u->roles[0] ]['name'] ) ) {
+                $role = translate_user_role( $all_roles[ $u->roles[0] ]['name'] );
+            }
+
+            $out[] = array(
+                'id'    => (int) $u->ID,
+                'name'  => $u->display_name,
+                'login' => $u->user_login,
+                'role'  => $role,
+            );
+        }
+
+        wp_send_json_success( $out );
     }
 
     public function enqueue_assets( $hook ) {
@@ -127,11 +175,16 @@ class CS_AHM_Settings {
         wp_enqueue_script( 'cs-ahm-admin', CS_AHM_URL . 'assets/js/admin.js', array( 'jquery' ), CS_AHM_VERSION, true );
 
         wp_localize_script( 'cs-ahm-admin', 'csAhm', array(
-            'roles' => CS_AHM_Roles::get_all_roles(),
-            'i18n'  => array(
-                'forAll'   => __( 'برای همه', 'cs-admin-hide-menu' ),
-                'show'     => __( 'نمایش', 'cs-admin-hide-menu' ),
-                'roleWord' => __( 'نقش', 'cs-admin-hide-menu' ),
+            'roles'  => CS_AHM_Roles::get_all_roles(),
+            'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+            'nonce'   => wp_create_nonce( 'cs_ahm_search_users' ),
+            'i18n'   => array(
+                'forAll'     => __( 'برای همه', 'cs-admin-hide-menu' ),
+                'show'       => __( 'نمایش', 'cs-admin-hide-menu' ),
+                'roleWord'   => __( 'نقش', 'cs-admin-hide-menu' ),
+                'userWord'   => __( 'کاربر', 'cs-admin-hide-menu' ),
+                'noUsers'    => __( 'کاربری پیدا نشد', 'cs-admin-hide-menu' ),
+                'searchWait' => __( 'در حال جستجو…', 'cs-admin-hide-menu' ),
             ),
         ) );
     }
@@ -153,7 +206,7 @@ class CS_AHM_Settings {
             </h1>
 
             <p class="description">
-                <?php esc_html_e( 'منوهایی که می‌خوای مخفی بشن رو تیک بزن. می‌تونی مشخص کنی فقط برای چه نقش‌هایی مخفی بشه.', 'cs-admin-hide-menu' ); ?>
+                <?php esc_html_e( 'منوهایی که می‌خوای مخفی بشن رو تیک بزن. می‌تونی مشخص کنی مخفی‌سازی فقط برای چه نقش‌هایی یا چه کاربرهایی اعمال بشه.', 'cs-admin-hide-menu' ); ?>
             </p>
 
             <div class="cs-ahm-toolbar">
@@ -186,8 +239,24 @@ class CS_AHM_Settings {
                             $slug         = $menu['slug'];
                             $is_self      = ( 'options-general.php' === $slug );
                             $is_hidden    = isset( $hidden[ $slug ] );
-                            $saved_roles  = $is_hidden ? (array) $hidden[ $slug ] : array();
-                            $hide_for_all = $is_hidden && empty( $saved_roles );
+                            $config       = $is_hidden ? (array) $hidden[ $slug ] : array();
+                            $saved_roles  = isset( $config['roles'] ) ? (array) $config['roles'] : array();
+                            $saved_users  = isset( $config['users'] ) ? (array) $config['users'] : array();
+                            $hide_for_all = $is_hidden && ( ( empty( $saved_roles ) && empty( $saved_users ) ) || in_array( 'all', $saved_roles, true ) );
+
+                            // نمایش نام کاربرهای انتخاب‌شده (فقط در صورت وجود؛ کاربران لود‌شده در فرم)
+                            $user_names = array();
+                            if ( ! empty( $saved_users ) ) {
+                                $found = get_users( array(
+                                    'include'     => $saved_users,
+                                    'fields'      => array( 'ID', 'display_name' ),
+                                    'orderby'     => 'include',
+                                    'count_total' => false,
+                                ) );
+                                foreach ( $found as $u ) {
+                                    $user_names[ (int) $u->ID ] = $u->display_name;
+                                }
+                            }
                             ?>
                             <tr class="cs-ahm-row <?php echo $is_self ? 'cs-ahm-protected' : ''; ?>"
                                 data-slug="<?php echo esc_attr( $slug ); ?>"
@@ -235,13 +304,17 @@ class CS_AHM_Settings {
                                         <?php else : ?>
                                             <span class="cs-ahm-status cs-ahm-status-roles">
                                                 <?php
-                                                $role_names = array();
-                                                foreach ( $saved_roles as $r ) {
-                                                    if ( isset( $roles[ $r ] ) ) {
-                                                        $role_names[] = $roles[ $r ]['name'];
-                                                    }
+                                                $status_parts = array();
+                                                if ( ! empty( $saved_roles ) ) {
+                                                    $status_parts[] = count( $saved_roles ) . ' ' . __( 'نقش', 'cs-admin-hide-menu' );
                                                 }
-                                                echo esc_html( count( $role_names ) . ' ' . __( 'نقش', 'cs-admin-hide-menu' ) );
+                                                if ( ! empty( $saved_users ) ) {
+                                                    $status_parts[] = count( $saved_users ) . ' ' . __( 'کاربر', 'cs-admin-hide-menu' );
+                                                }
+                                                if ( empty( $status_parts ) ) {
+                                                    $status_parts[] = __( 'برای همه', 'cs-admin-hide-menu' );
+                                                }
+                                                echo esc_html( implode( ' • ', $status_parts ) );
                                                 ?>
                                             </span>
                                         <?php endif; ?>
@@ -267,7 +340,10 @@ class CS_AHM_Settings {
                                         <label class="cs-ahm-role-item cs-ahm-role-all">
                                             <input type="checkbox"
                                                    class="cs-ahm-role-all-check"
-                                                   data-slug="<?php echo esc_attr( $slug ); ?>" />
+                                                   name="cs_ahm_hidden_menus[<?php echo esc_attr( $index ); ?>][roles][]"
+                                                   value="all"
+                                                   data-slug="<?php echo esc_attr( $slug ); ?>"
+                                                   <?php checked( $hide_for_all ); ?> />
                                             <strong><?php esc_html_e( 'همه نقش‌ها (شامل ادمین)', 'cs-admin-hide-menu' ); ?></strong>
                                         </label>
 
@@ -292,8 +368,55 @@ class CS_AHM_Settings {
                                         </div>
 
                                         <p class="cs-ahm-roles-hint">
-                                            ⚠️ <?php esc_html_e( 'اگه هیچ نقشی انتخاب نکنی، منو برای همه مخفی میشه.', 'cs-admin-hide-menu' ); ?>
+                                            ⚠️ <?php esc_html_e( 'اگه نه نقشی و نه کاربری انتخاب کنی، منو برای همه مخفی میشه.', 'cs-admin-hide-menu' ); ?>
                                         </p>
+
+                                        <div class="cs-ahm-users-section <?php echo $hide_for_all ? 'cs-ahm-locked' : ''; ?>"
+                                             data-slug="<?php echo esc_attr( $slug ); ?>">
+                                            <p class="cs-ahm-roles-title">
+                                                <?php esc_html_e( 'یا برای کاربر مشخصی مخفی بشه؟', 'cs-admin-hide-menu' ); ?>
+                                            </p>
+
+                                            <div class="cs-ahm-users-selected"
+                                                 data-slug="<?php echo esc_attr( $slug ); ?>"
+                                                 <?php echo empty( $saved_users ) ? 'style="display:none;"' : ''; ?>>
+                                                <?php foreach ( $saved_users as $uid ) : ?>
+                                                    <?php if ( ! isset( $user_names[ $uid ] ) ) { continue; } ?>
+                                                    <div class="cs-ahm-user-chip" data-user-id="<?php echo esc_attr( $uid ); ?>">
+                                                        <input type="hidden"
+                                                               class="cs-ahm-user-chip-input"
+                                                               name="cs_ahm_hidden_menus[<?php echo esc_attr( $index ); ?>][users][]"
+                                                               value="<?php echo esc_attr( $uid ); ?>"
+                                                               <?php disabled( $hide_for_all ); ?> />
+                                                        <span class="cs-ahm-user-chip-name">
+                                                            <?php echo esc_html( $user_names[ $uid ] ); ?>
+                                                        </span>
+                                                        <button type="button"
+                                                                class="cs-ahm-user-chip-remove"
+                                                                title="<?php esc_attr_e( 'حذف', 'cs-admin-hide-menu' ); ?>"
+                                                                aria-label="<?php esc_attr_e( 'حذف کاربر', 'cs-admin-hide-menu' ); ?>"
+                                                                <?php disabled( $hide_for_all ); ?>>&times;</button>
+                                                    </div>
+                                                <?php endforeach; ?>
+                                            </div>
+
+                                            <div class="cs-ahm-user-search">
+                                                <span class="dashicons dashicons-search cs-ahm-user-search-icon"></span>
+                                                <input type="search"
+                                                       class="cs-ahm-user-search-input"
+                                                       data-slug="<?php echo esc_attr( $slug ); ?>"
+                                                       placeholder="<?php esc_attr_e( 'جستجوی کاربر بر اساس نام یا نام کاربری…', 'cs-admin-hide-menu' ); ?>"
+                                                       autocomplete="off"
+                                                       <?php disabled( $hide_for_all ); ?> />
+                                                <div class="cs-ahm-user-results"
+                                                     data-slug="<?php echo esc_attr( $slug ); ?>"
+                                                     style="display:none;"></div>
+                                            </div>
+
+                                            <p class="cs-ahm-roles-hint">
+                                                💡 <?php esc_html_e( 'اگه فقط کاربر انتخاب کنی، منو فقط برای همون کاربرها مخفی میشه؛ نقش و کاربر با هم جمع می‌شن.', 'cs-admin-hide-menu' ); ?>
+                                            </p>
+                                        </div>
                                     </div>
                                 </td>
                             </tr>
@@ -322,13 +445,13 @@ class CS_AHM_Settings {
         $normalized = array();
 
         foreach ( $raw as $key => $value ) {
-            // فرمت قدیمی: [0 => 'edit.php']
+            // فرمت خیلی قدیمی: [0 => 'edit.php'] ← مخفی برای همه
             if ( is_int( $key ) && is_string( $value ) ) {
-                $normalized[ $value ] = array();
+                $normalized[ $value ] = CS_AHM_Roles::normalize_config( array() );
             }
-            // فرمت جدید: ['edit.php' => ['editor']]
+            // فرمت فعلی و فرمت نقش‌محور قدیمی: ['edit.php' => [...]]
             elseif ( is_string( $key ) && is_array( $value ) ) {
-                $normalized[ $key ] = $value;
+                $normalized[ $key ] = CS_AHM_Roles::normalize_config( $value );
             }
         }
 
